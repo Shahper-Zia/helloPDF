@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 
 # Set Google API Key
 if "GOOGLE_API_KEY" not in os.environ:
-    os.environ["GOOGLE_API_KEY"] = ""
+    os.environ["GOOGLE_API_KEY"] = "AIzaSyB5EvcRyo7VCLjc8PNmG1FOITgqjWfT0x8"
 
 class PDFProcessor:
     def __init__(self, pdf_path):
@@ -66,10 +66,11 @@ class PDFProcessor:
         return self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": k})
 
 class QueryHandler:
-    def __init__(self, retriever, visuals, tables, pdf_name):
+    def __init__(self, retriever, visuals, tables, pdf_path, pdf_name):
         self.retriever = retriever
         self.visuals = visuals
         self.tables = tables
+        self.pdf_path = pdf_path  # Store full path
         self.pdf_name = pdf_name
         self.llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash', temperature=0.2)
         self.conversation_history = []
@@ -82,7 +83,8 @@ class QueryHandler:
         return context
 
     def clear_highlights_on_page(self, page):
-        pdf_document = fitz.open(self.pdf_name)
+        # CHANGE THIS LINE
+        pdf_document = fitz.open(self.pdf_path)  # Changed from pdf_name to pdf_path
         annotations = page.annots()
         if annotations:
             for annot in annotations:
@@ -92,7 +94,7 @@ class QueryHandler:
         pdf_document.close()
 
     def highlight_text_in_pdf(self, page_number: int, text: str):
-        pdf_document = fitz.open(self.pdf_name)
+        pdf_document = fitz.open(self.pdf_path)
         page = pdf_document[page_number - 1]  # Pages are 0-indexed in PyMuPDF
 
         self.clear_highlights_on_page(page)
@@ -113,7 +115,7 @@ class QueryHandler:
             last_query, last_answer = self.conversation_history[-1]
             relevant_text = last_answer
         else:
-            pdf_document = fitz.open(self.pdf_name)
+            pdf_document = fitz.open(self.pdf_path)  # ← THIS IS THE CRITICAL FIX
             for page_number in range(len(pdf_document)):
                 page = pdf_document[page_number]
                 self.clear_highlights_on_page(page)
@@ -199,16 +201,27 @@ async def on_chat_start():
     msg = cl.Message(content=f"Processing {file.name}...")
     await msg.send()
 
+    # Store both path and name in session
+    cl.user_session.set("pdf_path", file.path)
+    cl.user_session.set("pdf_name", file.name)
+
     pdf_processor = PDFProcessor(file.path)
     pdf_processor.extract_visuals_and_tables()
     pdf_processor.process_documents()
     retriever = pdf_processor.get_retriever()
 
-    query_handler = QueryHandler(retriever, pdf_processor.visuals, pdf_processor.tables, pdf_name=file.name)
+    query_handler = QueryHandler(
+        retriever, 
+        pdf_processor.visuals, 
+        pdf_processor.tables, 
+        pdf_path=file.path,  # Pass full path instead of just name
+        pdf_name=file.name
+    )
 
     cl.user_session.set("query_handler", query_handler)
     msg.content = f"Processing {file.name} done. You can now ask questions!"
     await msg.update()
+
 
 @cl.on_message
 async def main(message: cl.Message):
@@ -231,9 +244,21 @@ async def main(message: cl.Message):
             elements.append(cl.Pdf(
                 name=f"{query_handler.pdf_name}",
                 display="side",
-                path=query_handler.pdf_name,
+                path=query_handler.pdf_path,
                 page=citation["page"],
                 link_text=citation["citation"]
             ))
+
+    # This send() call MUST be inside the function
+    await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()
+@cl.on_chat_end
+async def on_chat_end():
+    pdf_path = cl.user_session.get("pdf_path")
+    if pdf_path and os.path.exists(pdf_path):
+        try:
+            os.remove(pdf_path)
+        except Exception as e:
+            print(f"Error cleaning up file: {str(e)}")
+
 
     await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()
