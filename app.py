@@ -9,13 +9,15 @@ from langchain.schema import HumanMessage, SystemMessage
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 import pdfplumber
 import fitz  # PyMuPDF
-import time
+import time #new
+from dotenv import load_dotenv #new
 
 warnings.filterwarnings("ignore")
+load_dotenv() #new
 
 # Set Google API Key
 if "GOOGLE_API_KEY" not in os.environ:
-    os.environ["GOOGLE_API_KEY"] = ""
+    os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
 class PDFProcessor:
     def __init__(self, pdf_path):
@@ -29,7 +31,10 @@ class PDFProcessor:
 
     def extract_visuals_and_tables(self):
         pdf_document = fitz.open(self.pdf_path)
-
+        img_dir = "image_png"
+        if not os.path.exists(img_dir):
+            os.makedirs(img_dir)
+        
         # Extract images
         for page_number in range(len(pdf_document)):
             page = pdf_document[page_number]
@@ -37,7 +42,8 @@ class PDFProcessor:
                 xref = img[0]
                 base_image = pdf_document.extract_image(xref)
                 image_bytes = base_image["image"]
-                img_path = f"page-{page_number + 1}_image-{img_index + 1}.png"
+                # img_path = f"page-{page_number + 1}_image-{img_index + 1}.png"
+                img_path = os.path.join(img_dir, f"page-{page_number + 1}_image-{img_index + 1}.png")
                 with open(img_path, "wb") as f:
                     f.write(image_bytes)
                 self.visuals.append({
@@ -66,11 +72,11 @@ class PDFProcessor:
         return self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": k})
 
 class QueryHandler:
-    def __init__(self, retriever, visuals, tables, pdf_name):
+    def __init__(self, retriever, visuals, tables, pdf_path, pdf_name):
         self.retriever = retriever
         self.visuals = visuals
         self.tables = tables
-
+        self.pdf_path = pdf_path  # Store full path
         self.pdf_name = pdf_name
         self.llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash', temperature=0.2)
         self.conversation_history = []
@@ -83,8 +89,8 @@ class QueryHandler:
         return context
 
     def clear_highlights_on_page(self, page):
-
-        pdf_document = fitz.open(self.pdf_name)
+        # CHANGE THIS LINE
+        pdf_document = fitz.open(self.pdf_path)  # Changed from pdf_name to pdf_path
         annotations = page.annots()
         if annotations:
             for annot in annotations:
@@ -94,7 +100,7 @@ class QueryHandler:
         pdf_document.close()
 
     def highlight_text_in_pdf(self, page_number: int, text: str):
-        pdf_document = fitz.open(self.pdf_name)
+        pdf_document = fitz.open(self.pdf_path)
         page = pdf_document[page_number - 1]  # Pages are 0-indexed in PyMuPDF
 
         self.clear_highlights_on_page(page)
@@ -115,7 +121,7 @@ class QueryHandler:
             last_query, last_answer = self.conversation_history[-1]
             relevant_text = last_answer
         else:
-            pdf_document = fitz.open(self.pdf_name)
+            pdf_document = fitz.open(self.pdf_path)  # ← THIS IS THE CRITICAL FIX
             for page_number in range(len(pdf_document)):
                 page = pdf_document[page_number]
                 self.clear_highlights_on_page(page)
@@ -134,9 +140,19 @@ class QueryHandler:
                         break
 
             # Append relevant tables to the relevant_text
+            # table_text = ""
+            # for table in relevant_tables:
+            #     table_text += f"\nTable found on Page {table['page']}:\n" + "\n".join([" | ".join(row) for row in table['content']])
+            # relevant_text += table_text
+
             table_text = ""
             for table in relevant_tables:
-                table_text += f"\nTable found on Page {table['page']}:\n" + "\n".join([" | ".join(row) for row in table['content']])
+                formatted_rows = []
+                for row in table['content']:
+                    # Convert None values to empty strings and ensure all cells are strings
+                    formatted_row = [str(cell) if cell is not None else "" for cell in row]
+                    formatted_rows.append(" | ".join(formatted_row))
+                table_text += f"\nTable found on Page {table['page']}:\n" + "\n".join(formatted_rows)
             relevant_text += table_text
 
         instructions = (
@@ -201,9 +217,9 @@ async def on_chat_start():
     msg = cl.Message(content=f"Processing {file.name}...")
     await msg.send()
 
-
-
-
+    # Store both path and name in session
+    cl.user_session.set("pdf_path", file.path)
+    cl.user_session.set("pdf_name", file.name)
 
     pdf_processor = PDFProcessor(file.path)
     pdf_processor.extract_visuals_and_tables()
@@ -214,7 +230,7 @@ async def on_chat_start():
         retriever,
         pdf_processor.visuals,
         pdf_processor.tables,
-
+        pdf_path=file.path,  # Pass full path instead of just name
         pdf_name=file.name
     )
 
@@ -243,9 +259,21 @@ async def main(message: cl.Message):
             elements.append(cl.Pdf(
                 name=f"{query_handler.pdf_name}",
                 display="side",
-                path=query_handler.pdf_name,
+                path=query_handler.pdf_path,
                 page=citation["page"],
                 link_text=citation["citation"]
             ))
 
     await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()
+
+@cl.on_chat_end
+async def on_chat_end():
+    pdf_path = cl.user_session.get("pdf_path")
+    if pdf_path and os.path.exists(pdf_path):
+        try:
+            os.remove(pdf_path)
+        except Exception as e:
+            print(f"Error cleaning up file: {str(e)}")
+
+
+    # await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()

@@ -15,5 +15,5 @@ Develop a RAG Based Chatbot Application using the provided dataset.
         iv.	Conversational memory should be stored via mapping with a session id which can be generated in ChainLit. (goal here is if multiple users are using chatbot at same time, their conversation history would be different)
 6.	Deploy application locally first with UI seen on localhost.
 7.	Once deployed locally deploy app on azure web app.
-a.	(get a azure account on your personal email Id and get 200 dollar as free credit and use that to create a service of azure web app and then deploy)
-b.	Use / create another personal id incase azure free credit exhausted.
+    a.	(get a azure account on your personal email Id and get 200 dollar as free credit and use that to create a service of azure web app and then deploy)
+    b.	Use / create another personal id incase azure free credit exhausted.
