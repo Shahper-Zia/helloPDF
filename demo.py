@@ -15,7 +15,7 @@ warnings.filterwarnings("ignore")
 
 # Set Google API Key
 if "GOOGLE_API_KEY" not in os.environ:
-    os.environ["GOOGLE_API_KEY"] = "AIzaSyB5EvcRyo7VCLjc8PNmG1FOITgqjWfT0x8"
+    os.environ["GOOGLE_API_KEY"] = ""
 
 class PDFProcessor:
     def __init__(self, pdf_path):
