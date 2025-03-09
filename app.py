@@ -72,21 +72,29 @@ class PDFProcessor:
         return self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": k})
 
 class QueryHandler:
-    def __init__(self, retriever, visuals, tables, pdf_path, pdf_name):
+    def __init__(self, retriever, visuals, tables, pdf_path, pdf_name, session_id):
         self.retriever = retriever
         self.visuals = visuals
         self.tables = tables
         self.pdf_path = pdf_path  # Store full path
         self.pdf_name = pdf_name
+        self.session_id = session_id
         self.llm = ChatGoogleGenerativeAI(model='gemini-1.5-flash', temperature=0.2)
-        self.conversation_history = []
+
+        # Initialize session-specific conversation history if not already set
+        if not cl.user_session.get("conversation_history"):
+            cl.user_session.set("conversation_history", {})
+
+        if session_id not in cl.user_session.get("conversation_history"):
+            cl.user_session.get("conversation_history")[self.session_id] = []
 
     def add_to_history(self, query: str, answer: str):
-        self.conversation_history.append((query, answer))
-
+        cl.user_session.get("conversation_history")[self.session_id].append((query, answer))
+    
     def build_context(self) -> str:
-        context = "\n".join([f"Q: {q}\nA: {a}" for q, a in self.conversation_history])
-        return context
+        """Retrieve session-specific conversation history"""
+        history = cl.user_session.get("conversation_history")[self.session_id]
+        return "\n".join([f"Q: {q}\nA: {a}" for q, a in history]) if history else ""
 
     def clear_highlights_on_page(self, page):
         # CHANGE THIS LINE
@@ -113,21 +121,26 @@ class QueryHandler:
         pdf_document.close()
 
     async def generate_answer(self, query: str) -> dict:
+        """Generate answer with session-based conversational memory and relevant document retrieval."""
+
+        session_history = cl.user_session.get("conversation_history")[self.session_id]
+
         # Check if the query is a follow-up question
         is_follow_up = any(keyword in query.lower() for keyword in ["above", "previous", "last"])
 
-        if is_follow_up and self.conversation_history:
-            # Use the last answer from the conversation history
-            last_query, last_answer = self.conversation_history[-1]
-            relevant_text = last_answer
+        if is_follow_up and session_history:
+            last_query, last_answer = session_history[-1]
+            relevant_text = last_answer  # Use last response for context
         else:
-            pdf_document = fitz.open(self.pdf_path)  # ← THIS IS THE CRITICAL FIX
+            # Clear previous highlights in the PDF
+            pdf_document = fitz.open(self.pdf_path)
             for page_number in range(len(pdf_document)):
                 page = pdf_document[page_number]
                 self.clear_highlights_on_page(page)
             pdf_document.saveIncr()
             pdf_document.close()
 
+            # Retrieve relevant document excerpts
             docs = self.retriever.get_relevant_documents(query)
             relevant_text = "\n".join([doc.page_content for doc in docs])
 
@@ -139,19 +152,13 @@ class QueryHandler:
                         relevant_tables.append(table)
                         break
 
-            # Append relevant tables to the relevant_text
-            # table_text = ""
-            # for table in relevant_tables:
-            #     table_text += f"\nTable found on Page {table['page']}:\n" + "\n".join([" | ".join(row) for row in table['content']])
-            # relevant_text += table_text
-
+            # Append relevant tables to relevant_text
             table_text = ""
             for table in relevant_tables:
-                formatted_rows = []
-                for row in table['content']:
-                    # Convert None values to empty strings and ensure all cells are strings
-                    formatted_row = [str(cell) if cell is not None else "" for cell in row]
-                    formatted_rows.append(" | ".join(formatted_row))
+                formatted_rows = [
+                    " | ".join(str(cell) if cell else "" for cell in row)
+                    for row in table['content']
+                ]
                 table_text += f"\nTable found on Page {table['page']}:\n" + "\n".join(formatted_rows)
             relevant_text += table_text
 
@@ -162,21 +169,12 @@ class QueryHandler:
         )
 
         context = self.build_context()
-        if context:
-            prompt = (
-                f"{instructions}\n\n"
-                f"Here is the conversation history to help you understand the context:\n"
-                f"{context}\n\n"
-                f"Now, answer the following query:\n{query}\n\n"
-                f"Based on the following relevant text from the document or previous answers:\n{relevant_text}"
-            )
-        else:
-            prompt = (
-                f"{instructions}\n\n"
-                f"Answer the following query:\n{query}\n\n"
-                f"Based on the following relevant text from the document:\n{relevant_text}"
-            )
-
+        prompt = (
+            f"{instructions}\n\n"
+            f"{'Here is the conversation history to maintain context:\n' + context + '\n\n' if context else ''}"
+            f"Now, answer the following query:\n{query}\n\n"
+            f"Relevant content from the document or previous responses:\n{relevant_text}"
+        )
         system_message = SystemMessage(content="You are an AI assistant helping to generate answers to questions based on the provided document.")
         user_message = HumanMessage(content=prompt)
 
@@ -184,6 +182,7 @@ class QueryHandler:
             response = await self.llm.apredict_messages([system_message, user_message])
             answer = response.content.strip()
 
+            # Handle citations for document sources
             citations = []
             if not is_follow_up:
                 for doc in docs:
@@ -195,6 +194,7 @@ class QueryHandler:
                 if not citations:
                     citations.append({"page": None, "citation": "Source page information not available"})
 
+            # Store conversation history in session
             self.add_to_history(query, answer)
 
             return {"query": query, "answer": answer, "citations": citations}
@@ -204,6 +204,9 @@ class QueryHandler:
 
 @cl.on_chat_start
 async def on_chat_start():
+    session_id = cl.user_session.get('id')  # Generate unique session ID
+
+    """Initialize session and PDF processing."""
     files = None
     while files is None:
         files = await cl.AskFileMessage(
@@ -214,6 +217,8 @@ async def on_chat_start():
         ).send()
 
     file = files[0]
+    
+
     msg = cl.Message(content=f"Processing {file.name}...")
     await msg.send()
 
@@ -231,7 +236,8 @@ async def on_chat_start():
         pdf_processor.visuals,
         pdf_processor.tables,
         pdf_path=file.path,  # Pass full path instead of just name
-        pdf_name=file.name
+        pdf_name=file.name,
+        session_id=session_id
     )
 
     cl.user_session.set("query_handler", query_handler)
