@@ -252,7 +252,6 @@ async def main(message: cl.Message):
                 link_text=citation["citation"]
             ))
 
-    # This send() call MUST be inside the function
     await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()
 
 def clean_image_folder(folder_path):
