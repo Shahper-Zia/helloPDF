@@ -25,7 +25,7 @@ Develop a RAG Based Chatbot Application using the provided dataset.
 5.  a. done
     b.  i. done
         ii. done - bug
-        iii. done - (add_to_history)
-        iv. Working (Shahper)*
+        iii. done
+        iv. done - bug (  chromadb is not getting deleted on_chat_end.  )
 6. done
 7. Working (mjairumi)*

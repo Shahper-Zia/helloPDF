@@ -66,7 +66,7 @@ class PDFProcessor:
     def process_documents(self):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         self.split_docs = text_splitter.split_documents(self.documents)
-        self.vector_store = Chroma.from_documents(self.split_docs, self.embeddings)
+        self.vector_store = Chroma.from_documents(self.split_docs, self.embeddings, persist_directory=f".files/{self.session_id}/Chroma_db")
 
     def get_retriever(self, k=3):
         return self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": k})
