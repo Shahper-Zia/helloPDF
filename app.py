@@ -31,9 +31,9 @@ class PDFProcessor:
 
     def extract_visuals_and_tables(self):
         pdf_document = fitz.open(self.pdf_path)
-        img_dir = "image_png"
-        if not os.path.exists(img_dir):
-            os.makedirs(img_dir)
+        self.img_dir = "image_png"
+        if not os.path.exists(self.img_dir):
+            os.makedirs(self.img_dir)
         
         # Extract images
         for page_number in range(len(pdf_document)):
@@ -43,7 +43,7 @@ class PDFProcessor:
                 base_image = pdf_document.extract_image(xref)
                 image_bytes = base_image["image"]
                 # img_path = f"page-{page_number + 1}_image-{img_index + 1}.png"
-                img_path = os.path.join(img_dir, f"page-{page_number + 1}_image-{img_index + 1}.png")
+                img_path = os.path.join(self.img_dir, f"page-{page_number + 1}_image-{img_index + 1}.png")
                 with open(img_path, "wb") as f:
                     f.write(image_bytes)
                 self.visuals.append({
@@ -272,6 +272,17 @@ async def main(message: cl.Message):
 
     await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()
 
+def clean_image_folder(folder_path):
+    for filename in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            print(f"Failed to delete {file_path}. Reason: {e}")
+
 @cl.on_chat_end
 async def on_chat_end():
     pdf_path = cl.user_session.get("pdf_path")
@@ -283,3 +294,6 @@ async def on_chat_end():
 
 
     # await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()
+    img_dir = "image_png"
+    if os.path.exists(img_dir):
+        clean_image_folder(img_dir)
