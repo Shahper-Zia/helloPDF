@@ -1,31 +1,40 @@
 CHAT WITH GIVEN PDF USING LLM’S
+____________________________________________________________________________________________________
 
-Develop a RAG Based Chatbot Application using the provided dataset.
+Develop a RAG Based Chatbot Application using the provided dataset:
+    1.	Use Langchain/ Llamaindex or any method of your choice.
+    2.	Use Chroma DB or similar develop locally.
+    3.	Generate synthetic Q&A pairs on given pdf using any of below libraries: Langchain/ llama index/ RAGAS  or any method of your choice and evaluate accuracy of your bot on that dataset.
+    4.	Develop UI of Bot in Streamlit/chainlit.
+    5.	Application should have below features:
+        a.	Frontend of application to be developed using Chainlit/Streamlit.
+        b.	For a given user question, output from should contain:
+            i.	Answer in text
+            ii.	Citations for the answer clickable link, which provides page number from which answer has been generated.
+            iii. Application should have conversational memory. (If you ask follow up question it should take previous conversation history under scope)
+            iv.	Conversational memory should be stored via mapping with a session id which can be generated in ChainLit. (goal here is if multiple users are using chatbot at same time, their conversation history would be different)
+    6.	Deploy application locally first with UI seen on localhost.
+    7.	Once deployed locally deploy app on azure web app.
+        a.	(get a azure account on your personal email Id and get 200 dollar as free credit and use that to create a service of azure web app and then deploy)
+        b.	Use / create another personal id incase azure free credit exhausted.
+____________________________________________________________________________________________________
 
-1.	Use Langchain/ Llamaindex or any method of your choice.
-2.	Use Chroma DB or similar develop locally.
-3.	Generate synthetic Q&A pairs on given pdf using any of below libraries: Langchain/ llama index/ RAGAS  or any method of your choice and evaluate accuracy of your bot on that dataset.
-4.	Develop UI of Bot in Streamlit/chainlit.
-5.	Application should have below features:
-    a.	Frontend of application to be developed using Chainlit/Streamlit.
-    b.	For a given user question, output from should contain:
-        i.	Answer in text
-        ii.	Citations for the answer clickable link, which provides page number from which answer has been generated.
-        iii. Application should have conversational memory. (If you ask follow up question it should take previous conversation history under scope)
-        iv.	Conversational memory should be stored via mapping with a session id which can be generated in ChainLit. (goal here is if multiple users are using chatbot at same time, their conversation history would be different)
-6.	Deploy application locally first with UI seen on localhost.
-7.	Once deployed locally deploy app on azure web app.
-    a.	(get a azure account on your personal email Id and get 200 dollar as free credit and use that to create a service of azure web app and then deploy)
-    b.	Use / create another personal id incase azure free credit exhausted.
+Updates: 
+    1. done
+    2. done
+    3. Pending
+    4. done
+    5.  a. done
+        b.  i. done
+            ii. done - bug
+            iii. done
+            iv. done - bug ( app3.py: chromadb is not getting deleted on_chat_end. )
+    6. done
+    7. Working (mjairumi)*
+____________________________________________________________________________________________________
 
-1. done
-2. done
-3. Pending
-4. done
-5.  a. done
-    b.  i. done
-        ii. done - bug
-        iii. done
-        iv. done - bug (  chromadb is not getting deleted on_chat_end.  )
-6. done
-7. Working (mjairumi)*
+App Development: 
+    demo.py : Original template for the app.
+    app.py : Working version of the app, but single session only.
+    app2.py : It allows multiple session, but folder Chromadb is not getting deleted.
+    app3.py : Working on deletion of Chromadb folder after session closes.
