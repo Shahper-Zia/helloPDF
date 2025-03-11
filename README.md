@@ -51,7 +51,7 @@ GOOGLE_API_KEY=your_api_key_here
 
 5. Run the application:
 ```bash
-chainlit run src/main.py -w
+chainlit run app.py -w
 ```
 
 The application will be available at `http://localhost:8000`

@@ -10,29 +10,29 @@ from langchain.schema import HumanMessage, SystemMessage
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI
 import pdfplumber
 import fitz  # PyMuPDF
-import time #new
-from dotenv import load_dotenv #new
+import time
+from dotenv import load_dotenv
 
 warnings.filterwarnings("ignore")
-load_dotenv() #new
+load_dotenv()
 
-# Set Google API Key
 if "GOOGLE_API_KEY" not in os.environ:
     os.environ["GOOGLE_API_KEY"] = os.getenv("GEMINI_API_KEY")
 
 class PDFProcessor:
-    def __init__(self, pdf_path):
+    def __init__(self, pdf_path, session_id):
         self.pdf_path = pdf_path
+        self.session_id = session_id
         self.documents = PyPDFLoader(pdf_path).load()
         self.visuals = []
         self.tables = []
         self.embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
         self.vector_store = None
         self.split_docs = None
+        self.img_dir = f".files/{session_id}/image_png"
 
     def extract_visuals_and_tables(self):
         pdf_document = fitz.open(self.pdf_path)
-        self.img_dir = "image_png"
         if not os.path.exists(self.img_dir):
             os.makedirs(self.img_dir)
         
@@ -43,7 +43,6 @@ class PDFProcessor:
                 xref = img[0]
                 base_image = pdf_document.extract_image(xref)
                 image_bytes = base_image["image"]
-                # img_path = f"page-{page_number + 1}_image-{img_index + 1}.png"
                 img_path = os.path.join(self.img_dir, f"page-{page_number + 1}_image-{img_index + 1}.png")
                 with open(img_path, "wb") as f:
                     f.write(image_bytes)
@@ -67,7 +66,7 @@ class PDFProcessor:
     def process_documents(self):
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
         self.split_docs = text_splitter.split_documents(self.documents)
-        self.vector_store = Chroma.from_documents(self.split_docs, self.embeddings)
+        self.vector_store = Chroma.from_documents(self.split_docs, self.embeddings, persist_directory=f".files/{self.session_id}/Chroma_db")
 
     def get_retriever(self, k=3):
         return self.vector_store.as_retriever(search_type="similarity", search_kwargs={"k": k})
@@ -202,11 +201,10 @@ class QueryHandler:
         except Exception as e:
             return {"query": query, "answer": "Error in generating answer. Please check the API key, model access, and prompt clarity.", "citations": []}
 
-
 @cl.on_chat_start
 async def on_chat_start():
     session_id = cl.user_session.get('id')  # Generate unique session ID
-
+    
     """Initialize session and PDF processing."""
     files = None
     while files is None:
@@ -218,27 +216,28 @@ async def on_chat_start():
         ).send()
 
     file = files[0]
-    
-
     msg = cl.Message(content=f"Processing {file.name}...")
     await msg.send()
-
-    # Store both path and name in session
+    
     cl.user_session.set("pdf_path", file.path)
     cl.user_session.set("pdf_name", file.name)
-
-    pdf_processor = PDFProcessor(file.path)
+    
+    pdf_processor = PDFProcessor(file.path, cl.user_session.get("id"))
     pdf_processor.extract_visuals_and_tables()
     pdf_processor.process_documents()
     retriever = pdf_processor.get_retriever()
 
+    cl.user_session.set("retriever", retriever)
+    cl.user_session.set("visuals", pdf_processor.visuals)
+    cl.user_session.set("tables", pdf_processor.tables)
+
     query_handler = QueryHandler(
-        retriever,
-        pdf_processor.visuals,
-        pdf_processor.tables,
-        pdf_path=file.path,  # Pass full path instead of just name
-        pdf_name=file.name,
-        session_id=session_id
+        retriever=cl.user_session.get("retriever"),
+        visuals=cl.user_session.get("visuals"),
+        tables=cl.user_session.get("tables"),
+        pdf_path=cl.user_session.get("pdf_path"),
+        pdf_name=cl.user_session.get("pdf_name"),
+        session_id=cl.user_session.get("id")
     )
 
     cl.user_session.set("query_handler", query_handler)
@@ -273,28 +272,11 @@ async def main(message: cl.Message):
 
     await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()
 
-def clean_image_folder(folder_path):
-    for filename in os.listdir(folder_path):
-        file_path = os.path.join(folder_path, filename)
-        try:
-            if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
-        except Exception as e:
-            print(f"Failed to delete {file_path}. Reason: {e}")
 
 @cl.on_chat_end
 async def on_chat_end():
-    pdf_path = cl.user_session.get("pdf_path")
-    if pdf_path and os.path.exists(pdf_path):
-        try:
-            os.remove(pdf_path)
-        except Exception as e:
-            print(f"Error cleaning up file: {str(e)}")
-
-
-    # await cl.Message(content=f"{answer}{citation_texts}", elements=elements).send()
-    img_dir = "image_png"
-    if os.path.exists(img_dir):
-        clean_image_folder(img_dir)
+    session_id = cl.user_session.get('id')
+    
+    file_dir = f".files/{session_id}"
+    if os.path.exists(file_dir):
+        shutil.rmtree(file_dir)
