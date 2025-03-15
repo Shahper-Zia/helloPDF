@@ -55,3 +55,5 @@ chainlit run app.py -w
 ```
 
 The application will be available at `http://localhost:8000`
+OR
+The application will be available at `gunicorn -w 1 -k uvicorn.workers.UvicornWorker server:start --bind 0.0.0.0:8000`
