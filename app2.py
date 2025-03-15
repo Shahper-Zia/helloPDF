@@ -169,8 +169,12 @@ class QueryHandler:
         )
 
         context = self.build_context()
+        history_part = f"Here is the conversation history to maintain context:\n{context}\n\n" if context else ""
         prompt = (
-            f"{instructions}\n\n {'Here is the conversation history to maintain context:\n' + context + '\n\n' if context else ''} \n Now, answer the following query:\n{query}\n\nRelevant content from the document or previous responses:\n{relevant_text}"
+            f"{instructions}\n\n"
+            f"{history_part}"
+            f"Now, answer the following query:\n{query}\n\n"
+            f"Relevant content from the document or previous responses:\n{relevant_text}"
         )
         system_message = SystemMessage(content="You are an AI assistant helping to generate answers to questions based on the provided document.")
         user_message = HumanMessage(content=prompt)
