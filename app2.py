@@ -282,3 +282,5 @@ async def on_chat_end():
     file_dir = f".files/{session_id}"
     if os.path.exists(file_dir):
         shutil.rmtree(file_dir)
+
+chainlit_server = cl.app.fastapi_app
